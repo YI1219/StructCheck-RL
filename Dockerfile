@@ -57,9 +57,7 @@ RUN conda run -n llm pip install \
 # -----------------------------
 # Install Unsloth + speedups
 # -----------------------------
-RUN conda run -n llm pip install unsloth && \
-    conda run -n llm pip install flash-attn --no-build-isolation && \
-    conda run -n llm pip install xformers
+RUN conda run -n llm pip install unsloth xformers
 
 # -----------------------------
 # Auto-activate env for interactive shells
