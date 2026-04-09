@@ -1,0 +1,179 @@
+{
+  "global_id": "3osoug9Ev0g85atawY75eN",
+  "sheet_ifc_type": "IfcBuildingElementProxy",
+  "metric_definitions": {
+    "coverage_grid": "Main coverage metric. Fixed multi-plane grid coverage using 1 top-view plane (normal Z) + N vertical planes (normals sampled in XY). For each plane: project BIM & as-built to plane coordinates, rasterize with grid_cell_size. Let b = number of occupied BIM grid cells, g = number of BIM grid cells also occupied by as-built. coverage_grid = sum(g) / sum(b) across planes.",
+    "grid_total_b": "Sum of b (occupied BIM grid cells) across all planes used in coverage_grid.",
+    "grid_total_g": "Sum of g (overlapped grid cells) across all planes used in coverage_grid.",
+    "grid_per_plane": {
+      "plane": "Plane index (0..N-1).",
+      "mode": "Plane generation mode. In this version it is fixed: 'fixed_top_plus_vertical' = 1 top-view plane + N vertical planes.",
+      "normal": "Observation plane normal vector [nx, ny, nz].",
+      "b": "Occupied BIM grid cell count on this plane.",
+      "g": "Overlapped grid cell count on this plane (cells occupied by both BIM and as-built).",
+      "coverage": "Per-plane coverage = g / b."
+    },
+    "coverage_hit": "Auxiliary point-wise hit ratio. For each BIM point in cloud_down, search neighbors in asbuilt_seg_down within radius hit_distance. coverage_hit = hit_count / num_BIM_points.",
+    "voxel_stats": {
+      "voxel_size": "Voxel size used for occupancy statistics (voxel_occ_size).",
+      "voxel_bim": "Number of occupied voxels in BIM (Vb).",
+      "voxel_asbuilt": "Number of occupied voxels in as-built segment (Va).",
+      "voxel_intersect": "Number of voxels occupied by both (|Vb ∩ Va|).",
+      "voxel_union": "Number of voxels occupied by either (|Vb ∪ Va|).",
+      "voxel_recall": "Recall on occupancy: |Vb ∩ Va| / |Vb| (how much BIM occupancy is covered by as-built).",
+      "voxel_precision": "Precision on occupancy: |Vb ∩ Va| / |Va| (how much as-built occupancy belongs to BIM).",
+      "voxel_iou": "IoU on occupancy: |Vb ∩ Va| / |Vb ∪ Va|.",
+      "voxel_down_size": "Downsample voxel size used to build cloud_down/asbuilt_seg_down (voxel_down_size).",
+      "voxel_occ_size": "Occupancy voxel size used for voxel_stats (voxel_occ_size)."
+    },
+    "mean_nn_cloud_to_asbuilt": "Mean nearest-neighbor distance from BIM downsampled points (cloud_down) to as-built downsampled segment points (asbuilt_seg_down), computed using Open3D compute_point_cloud_distance.",
+    "shape_linearity": "PCA shape descriptor: (λ1 - λ2) / λ1. High means line-like.",
+    "shape_planarity": "PCA shape descriptor: (λ2 - λ3) / λ1. High means plane-like.",
+    "shape_scattering": "PCA shape descriptor: λ3 / λ1. High means volumetric/scattered (more irregular).",
+    "shape_class": "Object type classification based on shape_scattering threshold (for explanation only): 'regular' if scattering < irregular_scattering_threshold else 'irregular'.",
+    "coverage_strategy": "Which observation-plane strategy was used for coverage_grid. In this version: fixed_top_plus_vertical (1 top-view + N vertical planes) for all objects."
+  },
+  "paths": {
+    "cloud_ply": "H:\\TKX\\ConstructionSiteData\\leighton\\BIM\\L3-5d\\BIM_PCDBlocks_ByStorey_IfcType_Tag\\FFL\\IfcBuildingElementProxy\\2802365__3osoug9Ev0g85atawY75eN\\cloud.ply",
+    "asbuilt_segmented_pcd": "H:\\TKX\\ConstructionSiteData\\leighton\\BIM\\L3-5d\\BIM_PCDBlocks_ByStorey_IfcType_Tag\\FFL\\IfcBuildingElementProxy\\2802365__3osoug9Ev0g85atawY75eN\\2025-02-10\\asbuilt_segmented.pcd"
+  },
+  "write_state": {
+    "asbuilt_segmented_pcd": "pcd_written"
+  },
+  "params": {
+    "seg_distance": 0.12,
+    "hit_distance": 0.12,
+    "distance_threshold_fallback": 0.1,
+    "voxel_down_size": 0.05,
+    "voxel_occ_size": 0.2,
+    "grid_cell_size": 0.1,
+    "use_top_view_plane": true,
+    "num_planes_vertical": 5,
+    "irregular_scattering_threshold": 0.02,
+    "max_query_points": 10000,
+    "seg_clean_enable": true,
+    "seg_clean_stat_nb_neighbors": 20,
+    "seg_clean_stat_std_ratio": 2.0,
+    "seg_clean_radius": 0.12,
+    "seg_clean_radius_min_points": 6,
+    "seg_keep_largest_cluster": true,
+    "seg_dbscan_eps": 0.12,
+    "seg_dbscan_min_points": 30,
+    "mean_nn_sample_n": 0
+  },
+  "counts": {
+    "cloud_raw": 10000,
+    "cloud_down": 141,
+    "asbuilt_segmented_raw": 8711,
+    "asbuilt_segmented_down": 401
+  },
+  "metrics": {
+    "coverage_grid": 0.7374301675977654,
+    "grid_total_g": 132,
+    "grid_total_b": 179,
+    "grid_per_plane": [
+      {
+        "plane": 0,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "b": 23,
+        "g": 17,
+        "coverage": 0.7391304347826086
+      },
+      {
+        "plane": 1,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "b": 46,
+        "g": 33,
+        "coverage": 0.717391304347826
+      },
+      {
+        "plane": 2,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          0.8090169943749475,
+          0.5877852522924731,
+          0.0
+        ],
+        "b": 38,
+        "g": 28,
+        "coverage": 0.7368421052631579
+      },
+      {
+        "plane": 3,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          0.30901699437494745,
+          0.9510565162951535,
+          0.0
+        ],
+        "b": 16,
+        "g": 12,
+        "coverage": 0.75
+      },
+      {
+        "plane": 4,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          -0.30901699437494734,
+          0.9510565162951536,
+          0.0
+        ],
+        "b": 18,
+        "g": 14,
+        "coverage": 0.7777777777777778
+      },
+      {
+        "plane": 5,
+        "mode": "fixed_top_plus_vertical",
+        "normal": [
+          -0.8090169943749473,
+          0.5877852522924732,
+          0.0
+        ],
+        "b": 38,
+        "g": 28,
+        "coverage": 0.7368421052631579
+      }
+    ],
+    "shape_class": "regular",
+    "coverage_strategy": "fixed_top_plus_vertical",
+    "coverage_strategy_info": {
+      "strategy": "fixed_top_plus_vertical",
+      "include_top_view": true,
+      "num_vertical_planes": 5,
+      "total_planes": 6
+    },
+    "coverage_hit": 0.7375886524822695,
+    "voxel_stats": {
+      "voxel_size": 0.2,
+      "voxel_bim": 12,
+      "voxel_asbuilt": 51,
+      "voxel_intersect": 8,
+      "voxel_union": 55,
+      "voxel_recall": 0.6666666666666666,
+      "voxel_precision": 0.1568627450980392,
+      "voxel_iou": 0.14545454545454545,
+      "voxel_down_size": 0.05,
+      "voxel_occ_size": 0.2
+    },
+    "mean_nn_cloud_to_asbuilt": 0.16124272421017766,
+    "shape_linearity": 0.997910833918917,
+    "shape_planarity": 0.0020891377308428394,
+    "shape_scattering": 2.835024020097273e-08,
+    "pca_eig1": 0.4625920593021441,
+    "pca_eig2": 0.0009664316386744829,
+    "pca_eig3": 1.3113595996306757e-08
+  },
+  "summary_line": "Type=IfcBuildingElementProxy; shape_class=regular (classified by PCA scattering: irregular if scattering >= threshold, otherwise regular; classification does NOT change coverage planes). coverage_grid=0.737 (coverage computed using fixed observation planes: 1 top-view (normal Z) + 5 vertical planes parallel to Z-axis (normals sampled in XY directions), measuring BIM grid cells overlapped by as-built). coverage_hit=0.738 (fraction of BIM points with any as-built neighbor within hit_distance). voxel_precision=0.157 (fraction of as-built occupied voxels that also belong to BIM, indicating segmentation purity). voxel_recall=0.667 (fraction of BIM occupied voxels covered by as-built, indicating spatial completeness). voxel_iou=0.145 (voxel-level overlap quality: intersection over union of BIM vs as-built occupancy).",
+  "timestamp": "2026-03-04 16:08:35"
+}

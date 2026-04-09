@@ -1,0 +1,10 @@
+﻿L3-5d.zip
+*.zip
+*.pt
+*.pth
+*.safetensors
+grpo_output/
+unsloth_compiled_cache/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,544 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from __future__ import annotations
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
+
+
+
+import base64
+import mimetypes
+from openai import AzureOpenAI
+
+
+# =========================================================
+# 固定路径（你的示例）
+# =========================================================
+ELEMENT_DIR = Path(
+    r"G:\OneDrive\3_Course\Ad_LLM\Data\L3-5d\WAREHOUSE LEVEL\IfcWallStandardCase\2802290__3osoug9Ev0g85atawY75h2"
+)
+RUN_DATE = "2025-08-01"
+
+RUN_DIR = ELEMENT_DIR / RUN_DATE
+META_PATH = ELEMENT_DIR / "meta.json"
+POINT_CLOUD_SUMMARY_PATH = RUN_DIR / "point_cloud_summary.json"
+CONTOUR_JSON_PATH = RUN_DIR / "bim_projection_contours.json"
+OUTPUT_JSON_PATH = RUN_DIR / "progress_decision.json"
+
+
+
+
+# =========================================================
+# 工具函数
+# =========================================================
+def read_json(p: Path) -> Dict[str, Any]:
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def safe(v: Any) -> str:
+    return "" if v is None else str(v).strip()
+
+
+# =========================================================
+# 1) BIM semantics
+# =========================================================
+def build_bim_semantics(meta_path: Path) -> Tuple[str, str]:
+    meta = read_json(meta_path)
+
+    target_element_text = f"""
+Name: "{safe(meta.get('Name'))}";
+Description: "{safe(meta.get('说明'))}";
+IfcType: "{safe(meta.get('IfcType'))}";
+Height: "{safe(meta.get('Height'))}";
+Width: "{safe(meta.get('Width'))}";
+Length: "{safe(meta.get('Length'))}";
+""".strip()
+
+    bim_semantics = f"""
+This element is identified as "{safe(meta.get('Name'))}", with IFC type "{safe(meta.get('IfcType'))}".
+It has approximate dimensions of height {safe(meta.get('Height'))}, width {safe(meta.get('Width'))}, and length {safe(meta.get('Length'))}.
+Additional description: "{safe(meta.get('说明'))}".
+""".strip()
+
+    return target_element_text, bim_semantics
+
+
+# =========================================================
+# 2) Point cloud summary
+# =========================================================
+def build_pointcloud_summary(point_cloud_summary_path: Path) -> str:
+    pc_summary = read_json(point_cloud_summary_path)
+    return f'SummaryLine: "{safe(pc_summary.get("summary_line"))}";'
+
+
+# =========================================================
+# 3) Temporal semantics
+# =========================================================
+def build_temporal_text(
+    element_dir: Path,
+    run_date: str,
+    history_json_name: str = "progress_decision.json",
+) -> str:
+    all_dirs: List[Path] = []
+
+    for d in element_dir.iterdir():
+        if d.is_dir():
+            name = d.name
+            if len(name) == 10 and name[4] == "-" and name[7] == "-" and name < run_date:
+                all_dirs.append(d)
+
+    all_dirs = sorted(all_dirs, key=lambda x: x.name)
+    timeline_records: List[str] = []
+
+    for d in all_dirs:
+        json_path = d / history_json_name
+        if not json_path.exists():
+            continue
+
+        try:
+            data = read_json(json_path)
+            stage_label = safe(data.get("Stage_label"))
+            completion = safe(data.get("Completion"))
+            timeline_records.append(
+                f"{d.name}: Stage_label={stage_label}, Completion={completion}"
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to read {json_path}: {e}")
+
+    if not timeline_records:
+        return """
+TemporalHistory: "No historical records available before the current date.";
+TemporalRule: "No earlier progress records are available for this element.";
+""".strip()
+
+    history_str = "; ".join(timeline_records)
+    return f"""
+TemporalHistory: "{history_str}";
+TemporalRule: "Earlier records describe the historical construction state progression of the same element.";
+""".strip()
+
+
+# =========================================================
+# 4) Local image semantics
+# =========================================================
+def build_empty_local_image_text() -> Tuple[str, List[Path], List[Dict[str, Any]]]:
+    local_image_text = """
+NumValidViews: "0";
+NumAnnotatedImages: "0";
+ViewInformation: "Local image information is unavailable because bim_projection_contours.json is missing or no valid annotated image could be loaded.";
+LocalImageRule: "No local image evidence is available for this element at the current time step.";
+ViewPolygons: "";
+""".strip()
+
+    return local_image_text, [], []
+def build_local_image_text(run_dir: Path, contour_json_path: Path) -> Tuple[str, List[Path], List[Dict[str, Any]]]:
+    contour_data = read_json(contour_json_path)
+    element_name = contour_data.get("element_name", "unknown_element")
+
+    items: List[Dict[str, Any]] = [
+        x for x in contour_data.get("items", [])
+        if x.get("num_contours", 0) > 0
+    ]
+
+    # 内部仍然按相对投影规模排序，但不把 mask_area_ratio 原始数值暴露给模型
+    items = sorted(
+        items,
+        key=lambda x: (
+            float(x.get("mask_area_ratio", 0.0)),
+            int(x.get("projected_points_unique_px", 0))
+        ),
+        reverse=True
+    )
+
+    annotated_imgs: List[Path] = []
+    view_info_lines: List[str] = []
+    view_polygon_lines: List[str] = []
+
+    num_views = len(items)
+
+    for i, item in enumerate(items, start=1):
+        base = Path(item["image_name"]).stem
+        png_path = run_dir / f"{element_name}_{base}_{item['side']}_.png"
+
+        if png_path.exists():
+            annotated_imgs.append(png_path)
+
+        proj_pts = int(item.get("projected_points_unique_px", 0))
+        side = item.get("side", "")
+        img_name = item.get("image_name", "")
+        contours = item.get("contours", [])
+        num_contours = int(item.get("num_contours", 0))
+
+        if num_views > 1:
+            if i == 1:
+                priority_note = "This is one of the strongest primary reference views among the available valid views."
+            elif i <= min(3, num_views):
+                priority_note = "This is a secondary but still important reference view among the available valid views."
+            else:
+                priority_note = "This is a supplementary reference view among the available valid views."
+
+            view_info_lines.append(
+                f"View {i}: side={side}, image={img_name}, "
+                f"projected_points_unique_px={proj_pts}, num_contours={num_contours}. "
+                f"{priority_note} "
+                f"View priority is determined only relative to the other valid views and must not be interpreted as construction completion, geometric completeness, or visual coverage of the element."
+            )
+        else:
+            view_info_lines.append(
+                f"View {i}: side={side}, image={img_name}, "
+                f"projected_points_unique_px={proj_pts}, num_contours={num_contours}. "
+                f"Only one valid view is available. The judgment must rely directly on the visible target region inside the contour. "
+                f"Do not describe the visual evidence as limited, weak, or low-confidence based on the relative projected area."
+            )
+
+        view_polygon_lines.append(
+            f"View {i}: side={side}, image={img_name}, contours={json.dumps(contours, ensure_ascii=False)}"
+        )
+
+    view_info_text = "\n".join(view_info_lines)
+    view_polygon_text = "\n".join(view_polygon_lines)
+
+    if num_views > 1:
+        local_rule = (
+            "For each valid view, the target region is defined by the contour polygons in bim_projection_contours.json. "
+            "The model should focus primarily on the contour-enclosed region in the annotated images. "
+            "When multiple valid views are available, earlier listed views should be treated as stronger primary references relative to later listed views. "
+            "This ordering is only for view prioritization and must not be interpreted as construction completion, geometric completeness, or visual coverage of the element."
+        )
+    else:
+        local_rule = (
+            "For the valid view, the target region is defined by the contour polygon in bim_projection_contours.json. "
+            "The model should focus primarily on the contour-enclosed region in the annotated image. "
+            "Since only one valid view is available, the assessment must rely directly on the visible target region in this view. "
+            "Do not infer limited coverage, weak evidence, or low confidence from the relative projected size of the target region."
+        )
+
+    local_image_text = f"""
+NumValidViews: "{len(items)}";
+NumAnnotatedImages: "{len(annotated_imgs)}";
+ViewInformation: "{safe(view_info_text)}";
+LocalImageRule: "{safe(local_rule)}";
+ViewPolygons: "{safe(view_polygon_text)}";
+""".strip()
+
+    return local_image_text, annotated_imgs, items
+
+
+# =========================================================
+# 5) 自动生成完整性说明
+# =========================================================
+def build_input_completeness(
+    has_bim: bool,
+    has_pc: bool,
+    has_temporal: bool,
+    has_local_image: bool,
+) -> Tuple[int, str]:
+    missing = []
+
+    if not has_bim:
+        missing.append("BIM semantic information")
+    if not has_pc:
+        missing.append("point cloud summary information")
+    if not has_temporal:
+        missing.append("temporal context information")
+    if not has_local_image:
+        missing.append("local image information")
+
+    n = 4 - len(missing)
+
+    if not missing:
+        availability_text = "no input information is missing"
+    elif len(missing) == 1:
+        availability_text = f"{missing[0]} is unavailable"
+    elif len(missing) == 2:
+        availability_text = f"{missing[0]} and {missing[1]} are unavailable"
+    else:
+        availability_text = ", ".join(missing[:-1]) + f", and {missing[-1]} are unavailable"
+
+    return n, availability_text
+
+
+# =========================================================
+# 6) 组装最终 prompt
+# =========================================================
+def build_final_prompt(
+    target_element_text: str,
+    bim_semantics: str,
+    pointcloud_summary_text: str,
+    temporal_text: str,
+    local_image_text: str,
+    n_types: int,
+    missing_text: str,
+    num_views: int,
+) -> str:
+    is_single_view = (num_views == 1)
+
+    if is_single_view:
+        visual_rules = """
+IMPORTANT VISUAL RULES:
+- You must focus primarily on the contour-projected region.
+- Only one valid view is available.
+- Do not infer limited coverage, weak evidence, or low confidence from the relative projected size of the target region.
+- Do not interpret a small projected region as incomplete construction or insufficient visual evidence.
+- The assessment must rely directly on the visible condition of the element within the contour-defined region in this view.
+""".strip()
+    else:
+        visual_rules = """
+IMPORTANT VISUAL RULES:
+- You must focus primarily on the contour-projected region.
+- View ordering only indicates relative prioritization among valid views and must not be interpreted as construction completion, geometric completeness, or visual coverage of the element.
+- Do not infer limited coverage, weak evidence, or low confidence from the relative projected size of the target region across views.
+- Do not interpret small projected regions as incomplete construction or insufficient coverage of the element.
+- Multiple views correspond to the same element and should be interpreted together.
+- Earlier listed views are stronger primary references only relative to the other valid views.
+""".strip()
+
+    return f"""
+You are a construction progress assessment assistant.
+
+Your task is to determine:
+1. Stage_label
+2. Completion
+3. Reason
+
+You are provided with four types of information describing a BIM element at a specific time step.
+
+========================
+1. BIM SEMANTICS
+========================
+{bim_semantics}
+
+========================
+2. POINT CLOUD SUMMARY
+========================
+{pointcloud_summary_text}
+
+========================
+3. TEMPORAL CONTEXT
+========================
+{temporal_text}
+
+========================
+4. LOCAL IMAGE INFORMATION
+========================
+{local_image_text}
+
+The target element is described in meta.json as:
+{target_element_text}
+
+Annotated images are also provided.
+The contour polygons define the exact target region of the element in each image.
+
+{visual_rules}
+
+REASONING INSTRUCTIONS:
+- Integrate all available evidence from local images, point cloud summary, BIM semantics, and temporal context.
+- The visual judgment must be based on what is actually visible inside the contour-defined target region.
+- For finishing-related elements, consider whether the surface appears visually finished based on general appearance such as color consistency and surface continuity.
+- BIM semantic descriptions may provide contextual information, but they are not always directly visually verifiable.
+- If a property cannot be clearly verified from the image, it is acceptable to describe it as visually inconclusive rather than assuming it is absent.
+- Point cloud metrics describe spatial overlap and coverage, but they should not override direct visual evidence without justification.
+- If temporal context is unavailable, explicitly state that it is unavailable rather than fabricating history.
+- If evidence is insufficient or contradictory, use "Uncertain".
+
+OUTPUT FORMAT
+
+Return JSON only, with exactly these keys:
+
+{{
+  "Stage_label": "...",
+  "Completion": "...",
+  "Reason": "..."
+}}
+
+REASON REQUIREMENTS:
+- State that {n_types} types of input information were considered.
+- State that {missing_text}.
+- Summarize the local image evidence based on the contour-defined target region.
+- Summarize the point cloud evidence.
+- Summarize the BIM semantic evidence.
+- Summarize the temporal evidence, or explicitly state that it is unavailable.
+- End with a clear explanation of why the final Completion was assigned.
+
+STRICT RULES
+- Stage_label can be inferred from BIM semantics.
+- Completion must be inferred from multi-source evidence.
+- Do not hallucinate unseen construction details.
+- Output JSON only.
+- Do not use markdown code fences.
+- Do not interpret lack of visible evidence as evidence of absence.
+""".strip()
+
+
+# =========================================================
+# 7) 调用 Gemini
+# =========================================================
+
+def call_gemini_with_images(prompt, image_paths):
+    print("=== 模拟调用 ===")
+    print(f"收到 {len(image_paths)} 张图")
+    
+    return {
+        "Stage_label": "Mock Stage",
+        "Completion": "Uncertain",
+        "Reason": "This is a mock result for pipeline testing."
+    }
+
+
+def _image_to_data_url(image_path: Path) -> str:
+    mime_type, _ = mimetypes.guess_type(str(image_path))
+    if mime_type is None:
+        mime_type = "image/png"
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    return f"data:{mime_type};base64,{b64}"
+
+def _clean_json_text(text: str) -> str:
+    text = text.strip()
+
+    if text.startswith("```json"):
+        text = text[7:].strip()
+    elif text.startswith("```"):
+        text = text[3:].strip()
+
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    return text
+
+def call_comp_openai_with_images(prompt: str, image_paths: List[Path]) -> Dict[str, Any]:
+    api_key = "0fd224af298a4d919a5f3543a6a590dd"
+    deploy_name = "gpt4o"
+
+    if not api_key:
+        raise EnvironmentError("COMP_OPENAI_KEY is not set.")
+
+    # 你可以改成 gpt4o-mini / gpt41-mini / 其他已部署名称
+
+    base = "https://comp.azure-api.net/azure"
+    api_version = "2024-02-01"
+
+    client = AzureOpenAI(
+        api_key=api_key,
+        api_version=api_version,
+        base_url=f"{base}/openai/deployments/{deploy_name}",
+    )
+
+    user_content: List[Dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": prompt
+        }
+    ]
+
+    for p in image_paths:
+        try:
+            data_url = _image_to_data_url(p)
+            user_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url,
+                        "detail": "auto"
+                    }
+                }
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to load image {p}: {e}")
+
+    response = client.chat.completions.create(
+        model=deploy_name,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a construction progress assessment assistant. Return valid JSON only, without markdown code fences."
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ],
+        temperature=0.2,
+    )
+
+    text = response.choices[0].message.content
+    if not text:
+        raise RuntimeError("COMP OpenAI returned empty text.")
+
+    cleaned_text = _clean_json_text(text)
+
+    try:
+        result = json.loads(cleaned_text)
+    except json.JSONDecodeError:
+        result = {
+            "Stage_label": "",
+            "Completion": "",
+            "Reason": cleaned_text
+        }
+
+    return result
+
+
+# =========================================================
+# 8) 主流程
+# =========================================================
+def main() -> None:
+    if not META_PATH.exists():
+        raise FileNotFoundError(f"meta.json not found: {META_PATH}")
+    if not POINT_CLOUD_SUMMARY_PATH.exists():
+        raise FileNotFoundError(f"point_cloud_summary.json not found: {POINT_CLOUD_SUMMARY_PATH}")
+
+    target_element_text, bim_semantics = build_bim_semantics(META_PATH)
+    pointcloud_summary_text = build_pointcloud_summary(POINT_CLOUD_SUMMARY_PATH)
+    temporal_text = build_temporal_text(ELEMENT_DIR, RUN_DATE)
+
+    if CONTOUR_JSON_PATH.exists():
+        local_image_text, annotated_imgs, valid_items = build_local_image_text(RUN_DIR, CONTOUR_JSON_PATH)
+    else:
+        print(f"[WARN] bim_projection_contours.json not found: {CONTOUR_JSON_PATH}")
+        print("[WARN] Local image information will be treated as missing.")
+        local_image_text, annotated_imgs, valid_items = build_empty_local_image_text()
+
+    has_bim = True
+    has_pc = True
+    has_temporal = "No historical records available" not in temporal_text
+    has_local_image = len(valid_items) > 0 and len(annotated_imgs) > 0
+
+    n_types, missing_text = build_input_completeness(
+        has_bim=has_bim,
+        has_pc=has_pc,
+        has_temporal=has_temporal,
+        has_local_image=has_local_image,
+    )
+
+    prompt = build_final_prompt(
+        target_element_text=target_element_text,
+        bim_semantics=bim_semantics,
+        pointcloud_summary_text=pointcloud_summary_text,
+        temporal_text=temporal_text,
+        local_image_text=local_image_text,
+        n_types=n_types,
+        missing_text=missing_text,
+        num_views=len(valid_items),
+    )
+
+    print("\n===== FINAL PROMPT READY =====\n")
+    print(prompt[:20000] + "\n...\n")
+
+    result = call_comp_openai_with_images(prompt, annotated_imgs)
+
+    OUTPUT_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    print(f"\nSaved to: {OUTPUT_JSON_PATH}")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+if __name__ == "__main__":
+    main()
