@@ -16,3 +16,12 @@ build/
 *.safetensors
 grpo_output/
 unsloth_compiled_cache/
+
+# Local / large artifacts — do not commit
+*.sqsh
+*.sqsh.*
+case1/
+*.ifc
+*.xlsx
+*.ply
+Data use
