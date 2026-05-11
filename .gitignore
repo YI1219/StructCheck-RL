@@ -10,3 +10,9 @@ venv/
 *.egg-info/
 dist/
 build/
+*.zip
+*.pt
+*.pth
+*.safetensors
+grpo_output/
+unsloth_compiled_cache/
