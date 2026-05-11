@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structcheck-rl"
+version = "0.1.0"
+description = "Multimodal construction progress assessment (SFT, inference, evaluation)."
+readme = "README.md"
+requires-python = ">=3.10"
+# Install pinned deps first: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

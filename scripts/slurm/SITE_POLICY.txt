@@ -1,0 +1,14 @@
+Slurm / cluster policy (PolyU POC / b3-poc-polyu)
+================================================
+
+1) Do NOT use --gres in job scripts
+   - Do not add: #SBATCH --gres=gpu:...
+   - Do not add: srun --gres=...
+   Reason: site policy; such jobs have been observed stuck pending (PD). GPU count
+   is determined by the allocated node / partition defaults (e.g. 8x H800).
+
+2) Naming
+   - Prefer job names like test_s_<num> for training/eval experiments (optional but
+     consistent with RESULTS.md repro commands).
+
+Keep this file when adding new .sbatch scripts so the constraint is not forgotten.
